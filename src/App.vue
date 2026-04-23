@@ -14,7 +14,7 @@ export default defineComponent({
   setup() {
     const route = useRoute()
     // 登录页不显示底部导航栏
-    const showTabbar = computed(() => route.path !== '/login')
+    const showTabbar = computed(() => route.path !== '/login' && route.path !== '/register')
     return { showTabbar }
   },
 })

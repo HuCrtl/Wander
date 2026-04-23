@@ -1,7 +1,7 @@
 <template>
   <BgLayout>
     <StatusBar />
-    <section class="login-section">
+    <section class="register-section">
       <div class="container">
         <!-- 五个漂浮方块 -->
         <div class="square" style="--i:0;"></div>
@@ -10,20 +10,23 @@
         <div class="square" style="--i:3;"></div>
         <div class="square" style="--i:4;"></div>
         <div class="form">
-          <h2>Login Form</h2>
-          <form @submit.prevent="handleLogin">
+          <h2>Sign Up</h2>
+          <form @submit.prevent="handleRegister">
             <div class="inputBox">
               <input type="text" v-model="username" placeholder="Username" autocomplete="off">
             </div>
             <div class="inputBox">
               <input type="password" v-model="password" placeholder="Password" autocomplete="new-password">
             </div>
-            <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
             <div class="inputBox">
-              <input type="submit" value="Login">
+              <input type="password" v-model="confirmPassword" placeholder="Confirm Password" autocomplete="new-password">
             </div>
-            <p class="forget">Forget Password ? <a href="#">Click Here</a></p>
-            <p class="forget">Don't have an account ? <router-link to="/register">Sign up</router-link></p>
+            <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
+            <p v-if="successMsg" class="success-msg">{{ successMsg }}</p>
+            <div class="inputBox">
+              <input type="submit" value="Register" :disabled="loading">
+            </div>
+            <p class="forget">Already have an account ? <router-link to="/login">Login</router-link></p>
           </form>
         </div>
       </div>
@@ -36,55 +39,69 @@ import { defineComponent, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import BgLayout from '@/components/BgLayout.vue'
 import StatusBar from '@/components/StatusBar.vue'
-import { loginApi } from '@/api/auth.js'
+import { registerApi } from '@/api/auth.js'
 
 export default defineComponent({
-  name: 'LoginPage',
+  name: 'RegisterPage',
   components: { BgLayout, StatusBar },
   setup() {
     const router = useRouter()
     const username = ref('')
     const password = ref('')
+    const confirmPassword = ref('')
     const errorMsg = ref('')
+    const successMsg = ref('')
     const loading = ref(false)
 
-    const handleLogin = async () => {
+    const handleRegister = async () => {
       errorMsg.value = ''
+      successMsg.value = ''
 
+      // 前端校验
       if (!username.value.trim()) {
         errorMsg.value = '请输入用户名'
+        return
+      }
+      if (username.value.trim().length < 2 || username.value.trim().length > 20) {
+        errorMsg.value = '用户名长度需在 2-20 个字符之间'
         return
       }
       if (!password.value) {
         errorMsg.value = '请输入密码'
         return
       }
+      if (password.value.length < 6) {
+        errorMsg.value = '密码长度至少 6 位'
+        return
+      }
+      if (password.value !== confirmPassword.value) {
+        errorMsg.value = '两次输入的密码不一致'
+        return
+      }
 
       loading.value = true
       try {
-        const res = await loginApi(username.value.trim(), password.value)
-        const { token, userId, username: name } = res.data.data
-        // 存储认证信息
-        localStorage.setItem('token', token)
-        localStorage.setItem('userId', String(userId))
-        localStorage.setItem('username', name)
-        // 跳转到首页
-        router.push('/home')
+        await registerApi(username.value.trim(), password.value)
+        successMsg.value = '注册成功！正在跳转到登录页...'
+        // 1.5秒后跳转到登录页
+        setTimeout(() => {
+          router.push('/login')
+        }, 1500)
       } catch (error: any) {
         const msg = error.response?.data?.message
-        errorMsg.value = msg || '登录失败，请稍后重试'
+        errorMsg.value = msg || '注册失败，请稍后重试'
       } finally {
         loading.value = false
       }
     }
 
-    return { username, password, errorMsg, loading, handleLogin }
+    return { username, password, confirmPassword, errorMsg, successMsg, loading, handleRegister }
   },
 })
 </script>
 
 <style scoped>
-.login-section {
+.register-section {
   position: relative;
   display: flex;
   justify-content: center;
@@ -92,8 +109,6 @@ export default defineComponent({
   width: 100%;
   height: 100vh;
 }
-
-
 
 .container {
   position: relative;
@@ -246,8 +261,22 @@ export default defineComponent({
   transform: scale(0.97);
 }
 
+.form .inputBox input[type="submit"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .error-msg {
   color: #ff6b6b;
+  font-size: 13px;
+  margin-top: 10px;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.success-msg {
+  color: #51cf66;
   font-size: 13px;
   margin-top: 10px;
   text-align: center;
@@ -263,6 +292,7 @@ export default defineComponent({
 .forget a {
   color: #fff;
   font-weight: 600;
+  text-decoration: none;
 }
 
 /* 小屏幕微调 */

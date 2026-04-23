@@ -1,6 +1,7 @@
 // router/index.ts
 import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/login.vue'
+import Register from '../views/register.vue'
 import Home from '../views/home.vue'
 import Jour from '../views/jour.vue'
 import Picture from '../views/picture.vue'
@@ -13,6 +14,7 @@ const router = createRouter({
   routes: [
     { path: '/', redirect: '/login' },
     { path: '/login', component: Login, name: 'Login' },
+    { path: '/register', component: Register, name: 'Register' },
     { path: '/home', component: Home, name: 'Home' },
     { path: '/jour', component: Jour, name: 'Jour' },
     { path: '/picture', component: Picture, name: 'Picture' },
