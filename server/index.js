@@ -1,6 +1,8 @@
+import './env.js';
 import express from 'express';
 import cors from 'cors';
 import authRouter from './routes/auth.js';
+import chatRouter from './routes/chat.js';
 
 const app = express();
 const PORT = 3000;
@@ -14,6 +16,7 @@ app.use(express.json());
 
 // 路由
 app.use('/api/auth', authRouter);
+app.use('/api/chat', chatRouter);
 
 // 健康检查
 app.get('/api/health', (req, res) => {

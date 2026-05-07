@@ -15,7 +15,7 @@
       </div>
       <!-- 行程卡片横向滚动 -->
       <div class="jour-travelexp">
-        <div class="exp-card-wrapper" v-for="item in jourtwoList" :key="item.id">
+        <div class="exp-card-wrapper" v-for="item in filteredTrips" :key="item.id">
           <router-link v-if="item.id === 1" :to="{ name: 'MyTravel' }" class="exp-card">
             <img :src="item.image" class="exp-img" />
             <div class="exp-info">
@@ -47,7 +47,7 @@
       <!-- 更多 -->
       <div class="jour-view-more">more ›</div>
       <!-- 我的旅行地图 -->
-      <div class="jour-map-section">
+      <router-link to="/map" class="jour-map-section">
         <div class="map-header">
           <div class="map-title">My Travel Map</div>
           <div class="map-stats">12 cities explored</div>
@@ -55,12 +55,12 @@
         <div class="map-content">
           <img src="@/assets/image/jour/jour-wodelvyouditu.png" class="map-img">
         </div>
-      </div>
+      </router-link>
     </div>
 </template>
 
 <script lang="ts">
-import { defineComponent, ref } from 'vue'
+import { defineComponent, ref, computed } from 'vue'
 import StatusBar from '@/components/StatusBar.vue'
 
 import jourBeijing from '@/assets/image/jour/jour-beijingwenhuazhilv.png'
@@ -83,24 +83,37 @@ export default defineComponent({
         text: 'Beijing Cultural Tour',
         image: jourBeijing,
         dataRange: '2024.02.15 - 02.18',
+        status: 'upcoming',
       },
       {
         id: 2,
         text: 'Zhangjiajie Glass Bridge',
         image: jourZJJ,
         dataRange: '2024.03.01 - 03.05',
+        status: 'upcoming',
       },
       {
         id: 3,
         text: 'Hangzhou West Lake',
         image: jourHZXH,
         dataRange: '2024.04.05 - 04.07',
+        status: 'completed',
       },
     ]
+
+    // 根据当前选中的标签筛选行程
+    const filteredTrips = computed(() => {
+      if (activeTabId.value === 1) return jourtwoList        // All Trips
+      if (activeTabId.value === 2) return jourtwoList.filter(t => t.status === 'upcoming')
+      if (activeTabId.value === 3) return jourtwoList.filter(t => t.status === 'completed')
+      return jourtwoList
+    })
+
     return { 
       activeTabId, 
       jourCardList, 
-      jourtwoList, 
+      jourtwoList,
+      filteredTrips,
     }
   },
 })

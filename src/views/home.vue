@@ -20,7 +20,61 @@
             <span class="status-dot"></span> Online
           </div>
         </div>
+        <!-- 右上角按钮组 -->
+        <div class="header-actions">
+          <button class="action-btn" @click="createNewChat" title="新建对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+          <button class="action-btn" :class="{ active: showHistory }" @click="showHistory = !showHistory" title="历史对话">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </button>
+        </div>
       </div>
+
+      <!-- 历史对话面板 -->
+      <transition name="panel-slide">
+        <div v-if="showHistory" class="history-panel">
+          <div class="history-title">历史对话</div>
+          <div class="history-list">
+            <div v-for="conv in conversations" :key="conv.id"
+                 :class="['history-item', { active: conv.id === currentConvId }]"
+                 @click="switchConversation(conv.id)">
+              <div class="history-item-info">
+                <!-- 编辑模式 -->
+                <input v-if="editingConvId === conv.id"
+                       class="history-rename-input"
+                       v-model="editingTitle"
+                       @click.stop
+                       @keyup.enter="confirmRename(conv.id)"
+                       @keyup.escape="cancelRename"
+                       @blur="confirmRename(conv.id)"
+                       ref="renameInput"
+                       maxlength="30" />
+                <!-- 显示模式 -->
+                <div v-else class="history-item-title" @dblclick.stop="startRename(conv)">{{ conv.title }}</div>
+                <div class="history-item-time">{{ conv.updatedAt }}</div>
+              </div>
+              <div class="history-item-actions">
+                <button class="history-action-btn rename-btn" @click.stop="startRename(conv)" title="重命名">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                  </svg>
+                </button>
+                <button v-if="conversations.length > 1" class="history-action-btn delete-btn" @click.stop="deleteConversation(conv.id)" title="删除">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </transition>
 
       <!-- 聊天消息 -->
       <div class="chat-messages" ref="messagesContainer">
@@ -77,13 +131,36 @@
         </div>
       </div>
     </div>
+
+    <!-- 新建对话命名弹窗 -->
+    <transition name="modal-fade">
+      <div v-if="showNewChatModal" class="modal-overlay" @click.self="cancelNewChat">
+        <div class="modal-dialog">
+          <div class="modal-title">新建对话</div>
+          <div class="modal-body">
+            <input class="modal-input"
+                   v-model="newChatName"
+                   placeholder="请输入对话名称"
+                   @keyup.enter="confirmNewChat"
+                   @keyup.escape="cancelNewChat"
+                   ref="newChatInput"
+                   maxlength="30" />
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" @click="cancelNewChat">取消</button>
+            <button class="modal-btn modal-btn-confirm" @click="confirmNewChat">确认</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </BgLayout>
 </template>
 
 <script setup lang="ts">
 import BgLayout from '@/components/BgLayout.vue'
 import StatusBar from '@/components/StatusBar.vue'
-import { ref, nextTick, onMounted } from 'vue'
+defineOptions({ name: 'HomePage' })
+import { ref, nextTick, onMounted, watch, computed } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -93,26 +170,177 @@ interface ChatMessage {
   time: string
 }
 
-const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY
-const API_URL = 'https://api.deepseek.com/chat/completions'
+interface Conversation {
+  id: string
+  title: string
+  messages: ChatMessage[]
+  updatedAt: string
+}
 
-const messages = ref<ChatMessage[]>([
-  {
-    role: 'assistant',
-    content: "Hi there! 👋 I'm your Travel AI assistant.",
-    time: getCurrentTime(),
-  },
-])
+const API_URL = `${import.meta.env.VITE_API_BASE_URL}/chat`
 
-const inputText = ref('')
-const isTyping = ref(false)
-const messagesContainer = ref<HTMLElement | null>(null)
-const chatInput = ref<HTMLInputElement | null>(null)
+const STORAGE_KEY = 'wander_conversations'
 
 function getCurrentTime(): string {
   const now = new Date()
   return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`
 }
+
+function getDateStr(): string {
+  const now = new Date()
+  return `${now.getMonth() + 1}/${now.getDate()} ${getCurrentTime()}`
+}
+
+function generateId(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+}
+
+function createDefaultMessages(): ChatMessage[] {
+  return [{
+    role: 'assistant',
+    content: "Hi there! 👋 I'm your Travel AI assistant.",
+    time: getCurrentTime(),
+  }]
+}
+
+function createConversation(): Conversation {
+  return {
+    id: generateId(),
+    title: '新对话',
+    messages: createDefaultMessages(),
+    updatedAt: getDateStr(),
+  }
+}
+
+// 从 localStorage 加载所有对话
+function loadConversations(): { convs: Conversation[], currentId: string } {
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY)
+    if (saved) {
+      const data = JSON.parse(saved)
+      if (data.conversations?.length > 0) {
+        return { convs: data.conversations, currentId: data.currentId || data.conversations[0].id }
+      }
+    }
+  } catch (e) {
+    console.error('加载对话失败:', e)
+  }
+  const first = createConversation()
+  return { convs: [first], currentId: first.id }
+}
+
+const loaded = loadConversations()
+const conversations = ref<Conversation[]>(loaded.convs)
+const currentConvId = ref(loaded.currentId)
+const showHistory = ref(false)
+
+const messages = computed<ChatMessage[]>({
+  get() {
+    const conv = conversations.value.find(c => c.id === currentConvId.value)
+    return conv ? conv.messages : []
+  },
+  set(val: ChatMessage[]) {
+    const conv = conversations.value.find(c => c.id === currentConvId.value)
+    if (conv) conv.messages = val
+  }
+})
+
+function saveConversations() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      conversations: conversations.value,
+      currentId: currentConvId.value,
+    }))
+  } catch (e) {
+    console.error('保存对话失败:', e)
+  }
+}
+
+// 监听变化自动保存
+watch(conversations, saveConversations, { deep: true })
+watch(currentConvId, saveConversations)
+
+// 新建对话弹窗相关
+const showNewChatModal = ref(false)
+const newChatName = ref('')
+const newChatInput = ref<HTMLInputElement | null>(null)
+
+function createNewChat() {
+  newChatName.value = ''
+  showNewChatModal.value = true
+  nextTick(() => {
+    newChatInput.value?.focus()
+  })
+}
+
+function confirmNewChat() {
+  const title = newChatName.value.trim() || '新对话'
+  const conv = createConversation()
+  conv.title = title
+  conversations.value.unshift(conv)
+  currentConvId.value = conv.id
+  showNewChatModal.value = false
+  showHistory.value = false
+  nextTick(() => scrollToBottom())
+}
+
+function cancelNewChat() {
+  showNewChatModal.value = false
+}
+
+// 重命名相关
+const editingConvId = ref<string | null>(null)
+const editingTitle = ref('')
+const renameInput = ref<HTMLInputElement[] | null>(null)
+
+function startRename(conv: Conversation) {
+  editingConvId.value = conv.id
+  editingTitle.value = conv.title
+  nextTick(() => {
+    const el = renameInput.value?.[0]
+    if (el) {
+      el.focus()
+      el.select()
+    }
+  })
+}
+
+function confirmRename(id: string) {
+  if (!editingConvId.value) return
+  const conv = conversations.value.find(c => c.id === id)
+  if (conv) {
+    const newTitle = editingTitle.value.trim()
+    conv.title = newTitle || '新对话'
+  }
+  editingConvId.value = null
+  editingTitle.value = ''
+}
+
+function cancelRename() {
+  editingConvId.value = null
+  editingTitle.value = ''
+}
+
+function switchConversation(id: string) {
+  currentConvId.value = id
+  showHistory.value = false
+  nextTick(() => scrollToBottom())
+}
+
+function deleteConversation(id: string) {
+  const idx = conversations.value.findIndex(c => c.id === id)
+  if (idx === -1 || conversations.value.length <= 1) return
+  conversations.value.splice(idx, 1)
+  if (currentConvId.value === id) {
+    const first = conversations.value[0]
+    if (first) currentConvId.value = first.id
+  }
+}
+
+const inputText = ref('')
+const isTyping = ref(false)
+const messagesContainer = ref<HTMLElement | null>(null)
+const chatInput = ref<HTMLInputElement | null>(null)
 
 const scrollToBottom = async () => {
   await nextTick()
@@ -144,17 +372,25 @@ const sendMessage = async () => {
   const text = inputText.value.trim()
   if (!text || isTyping.value) return
 
-  messages.value.push({
+  const conv = conversations.value.find(c => c.id === currentConvId.value)
+  if (!conv) return
+
+  conv.messages.push({
     role: 'user',
     content: text,
     time: getCurrentTime(),
   })
 
+  // 自动设置对话标题（取第一条用户消息前20个字符）
+  if (conv.title === '新对话') {
+    conv.title = text.length > 20 ? text.slice(0, 20) + '...' : text
+  }
+  conv.updatedAt = getDateStr()
+
   inputText.value = ''
   await scrollToBottom()
   isTyping.value = true
 
-  // 🔥 用 ref 存储当前 AI 消息，确保响应式
   const aiMsg = ref<ChatMessage>({
     role: 'assistant',
     content: '',
@@ -168,13 +404,11 @@ const sendMessage = async () => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${localStorage.getItem('token') || ''}`,
         Accept: 'text/event-stream',
       },
       body: JSON.stringify({
-        model: 'deepseek-chat',
-        stream: true,
-        messages: messages.value.map(m => ({
+        messages: conv.messages.map(m => ({
           role: m.role,
           content: m.content,
         })),
@@ -187,7 +421,7 @@ const sendMessage = async () => {
     if (!reader) throw new Error('No stream')
 
     // 先推入空消息
-    messages.value.push(aiMsg.value)
+    conv.messages.push(aiMsg.value)
     isTyping.value = false
 
     while (true) {
@@ -210,12 +444,10 @@ const sendMessage = async () => {
           const content = data.choices?.[0]?.delta?.content
 
           if (content) {
-            // 🔥 直接修改 ref 的值
             aiMsg.value.content += content
             
-            // 强制触发 messages 更新
-            const idx = messages.value.length - 1
-            messages.value[idx] = { ...aiMsg.value }
+            const idx = conv.messages.length - 1
+            conv.messages[idx] = { ...aiMsg.value }
             
             await nextTick()
             scrollToBottom()
@@ -227,20 +459,20 @@ const sendMessage = async () => {
     }
   } catch (err) {
     console.error(err)
-    messages.value.push({
+    conv.messages.push({
       role: 'assistant',
       content: '❌ Error occurred',
       time: getCurrentTime(),
     })
   } finally {
-    // 最后更新时间
-    const idx = messages.value.length - 1
-    if (messages.value[idx]?.role === 'assistant') {
-      messages.value[idx] = {
-        ...messages.value[idx],
+    const idx = conv.messages.length - 1
+    if (conv.messages[idx]?.role === 'assistant') {
+      conv.messages[idx] = {
+        ...conv.messages[idx],
         time: getCurrentTime()
       }
     }
+    conv.updatedAt = getDateStr()
     isTyping.value = false
     await scrollToBottom()
     chatInput.value?.focus()
@@ -335,6 +567,332 @@ onMounted(() => {
 @keyframes dot-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* ===== Header Actions ===== */
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  background: rgba(255, 255, 255, 0.3);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+}
+
+.action-btn svg {
+  width: 18px;
+  height: 18px;
+  color: #4a3d6e;
+}
+
+.action-btn:hover {
+  background: rgba(255, 255, 255, 0.55);
+  transform: scale(1.08);
+}
+
+.action-btn:active {
+  transform: scale(0.95);
+}
+
+.action-btn.active {
+  background: linear-gradient(135deg, rgba(155, 109, 255, 0.3), rgba(255, 109, 171, 0.3));
+  border-color: rgba(155, 109, 255, 0.4);
+}
+
+.action-btn.active svg {
+  color: #7c5ce9;
+}
+
+/* ===== History Panel ===== */
+.history-panel {
+  position: absolute;
+  top: 100px;
+  right: 12px;
+  left: 12px;
+  max-height: 50vh;
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 16px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.history-title {
+  padding: 14px 18px 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #253c5c;
+  border-bottom: 1px solid rgba(155, 109, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.history-list {
+  overflow-y: auto;
+  padding: 6px 8px 8px;
+  flex: 1;
+}
+
+.history-list::-webkit-scrollbar {
+  width: 3px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+  background: rgba(155, 109, 255, 0.2);
+  border-radius: 3px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: 2px;
+}
+
+.history-item:hover {
+  background: rgba(155, 109, 255, 0.08);
+}
+
+.history-item.active {
+  background: linear-gradient(135deg, rgba(155, 109, 255, 0.15), rgba(255, 109, 171, 0.1));
+}
+
+.history-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-item-title {
+  font-size: 14px;
+  color: #374151;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-item.active .history-item-title {
+  color: #7c5ce9;
+  font-weight: 600;
+}
+
+.history-item-time {
+  font-size: 11px;
+  color: #9CA3AF;
+  margin-top: 2px;
+}
+
+/* Rename input */
+.history-rename-input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid rgba(155, 109, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  color: #374151;
+  outline: none;
+  font-family: inherit;
+}
+
+.history-rename-input:focus {
+  border-color: #9b6dff;
+  box-shadow: 0 0 0 2px rgba(155, 109, 255, 0.15);
+}
+
+/* Action buttons group */
+.history-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+  margin-left: 6px;
+}
+
+.history-action-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.history-action-btn svg {
+  color: #9CA3AF;
+}
+
+.rename-btn:hover {
+  background: rgba(155, 109, 255, 0.1);
+}
+
+.rename-btn:hover svg {
+  color: #7c5ce9;
+}
+
+.delete-btn:hover {
+  background: rgba(255, 100, 100, 0.1);
+}
+
+.delete-btn:hover svg {
+  color: #ef4444;
+}
+
+/* Panel slide transition */
+.panel-slide-enter-active,
+.panel-slide-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.panel-slide-enter-from,
+.panel-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.96);
+}
+
+/* ===== New Chat Modal ===== */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-dialog {
+  width: 85%;
+  max-width: 320px;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  padding: 24px;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #253c5c;
+  margin-bottom: 18px;
+  text-align: center;
+}
+
+.modal-body {
+  margin-bottom: 20px;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid rgba(155, 109, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 15px;
+  color: #374151;
+  outline: none;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.modal-input:focus {
+  border-color: #9b6dff;
+  box-shadow: 0 0 0 3px rgba(155, 109, 255, 0.12);
+}
+
+.modal-input::placeholder {
+  color: #9CA3AF;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.modal-btn {
+  flex: 1;
+  padding: 10px 0;
+  border-radius: 12px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.modal-btn-cancel {
+  background: rgba(0, 0, 0, 0.06);
+  color: #6B7280;
+}
+
+.modal-btn-cancel:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.modal-btn-confirm {
+  background: linear-gradient(135deg, #9b6dff, #ff6dab);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(155, 109, 255, 0.3);
+}
+
+.modal-btn-confirm:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(155, 109, 255, 0.4);
+}
+
+.modal-btn-confirm:active {
+  transform: scale(0.97);
+}
+
+/* Modal fade transition */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.modal-fade-enter-active .modal-dialog,
+.modal-fade-leave-active .modal-dialog {
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-from .modal-dialog {
+  transform: scale(0.9) translateY(10px);
+}
+
+.modal-fade-leave-to .modal-dialog {
+  transform: scale(0.95);
 }
 
 /* ===== Messages Area ===== */

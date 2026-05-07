@@ -6,7 +6,10 @@ import db from '../db.js';
 const router = Router();
 
 // JWT 密钥（生产环境应放在环境变量中）
-const JWT_SECRET = 'wander-jwt-secret-2026';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is required');
+}
 const TOKEN_EXPIRES_IN = '7d';
 
 /**

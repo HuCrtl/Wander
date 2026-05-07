@@ -1,5 +1,9 @@
 <template>
-  <router-view></router-view>
+  <router-view v-slot="{ Component }">
+    <keep-alive :exclude="['LoginPage', 'RegisterPage']">
+      <component :is="Component" />
+    </keep-alive>
+  </router-view>
   <Tabbar v-if="showTabbar" />
 </template>
 
@@ -13,8 +17,8 @@ export default defineComponent({
   components: { Tabbar },
   setup() {
     const route = useRoute()
-    // 登录页不显示底部导航栏
-    const showTabbar = computed(() => route.path !== '/login' && route.path !== '/register')
+    const hiddenPaths = ['/login', '/register', '/map', '/mytravel', '/picture/sanya']
+    const showTabbar = computed(() => !hiddenPaths.includes(route.path))
     return { showTabbar }
   },
 })
